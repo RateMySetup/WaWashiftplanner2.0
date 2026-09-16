@@ -562,6 +562,12 @@ select:focus-visible, a:focus-visible, [role="tab"]:focus-visible {{
     border-left-color: {slot_blocked_border} !important;
 }}
 
+.stApp .slot-card.replacement {{
+    background-color: {slot_replacement_bg} !important;
+    border-color: {border_color} !important;
+    border-left-color: {slot_replacement_border} !important;
+}}
+
 .stApp .status-badge {{
     display: inline-flex;
     align-items: center;
@@ -588,6 +594,11 @@ select:focus-visible, a:focus-visible, [role="tab"]:focus-visible {{
 .stApp .status-badge.blocked {{
     color: {text_secondary} !important;
     border: {border_medium} solid {slot_blocked_border};
+}}
+
+.stApp .status-badge.replacement {{
+    color: {accent_pink_text} !important;
+    border: {border_medium} solid {slot_replacement_border};
 }}
 
 /* ===== MOBIL ===== */

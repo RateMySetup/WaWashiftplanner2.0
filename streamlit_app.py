@@ -1284,6 +1284,30 @@ Gebucht am: {current_date}""",
                             date=fmt_de(slot_date), time=slot_time)
         )
 
+    def send_replacement_notice(self, user_name, user_email, slot_date,
+                                slot_time, grund=""):
+        """Admin informieren, dass jemand Vertretung fuer einen Dienst sucht"""
+        if not self.admin_receiver:
+            return False, "Keine Admin-E-Mail konfiguriert"
+        return self._send_template(
+            self.admin_receiver, 'email_replacement_notice',
+            '🔎 Vertretung gesucht: {name} - {date}',
+            """{name} sucht eine Vertretung für einen Dienst:
+
+📅 Datum: {date}
+⏰ Uhrzeit: {time}
+📧 E-Mail: {email}
+📝 Grund: {reason}
+
+Der Dienst bleibt bei {name}, bis jemand ihn im Kalender übernimmt.
+Er ist dort rosa markiert.
+
+Gemeldet am: {current_date}""",
+            self._base_data(name=user_name, email=user_email,
+                            date=fmt_de(slot_date), time=slot_time,
+                            reason=grund or 'Nicht angegeben')
+        )
+
     def send_registration_notice(self, user_name, user_email, user_phone):
         """Admin ueber eine neue, freizugebende Registrierung informieren"""
         if not self.admin_receiver:
@@ -1692,9 +1716,53 @@ def kalender_page():
         if st.button("🔄 Diese Woche", use_container_width=True):
             st.session_state.selected_week = week_start()
             st.rerun()
-    
+
+    # ===== DIREKT ZU EINER WOCHE SPRINGEN =====
+    # Wer fuenf Wochen voraus plant, soll nicht fuenfmal klicken muessen.
+    # Zwei Wege, wie es Kalender-Apps halten: ein Datumsfeld ("Gehe zu
+    # Datum") und eine Schnellwahl der naechsten Kalenderwochen.
+    with st.expander("🔍 Woche direkt wählen", expanded=False):
+        col_s1, col_s2 = st.columns(2)
+        heute = datetime.now(TZ).date()
+        with col_s1:
+            ziel = st.date_input(
+                "Zu Datum springen",
+                value=st.session_state.selected_week,
+                min_value=heute - timedelta(days=365),
+                max_value=heute + timedelta(days=365),
+                format="DD.MM.YYYY",
+                help="Ein beliebiger Tag genügt – angezeigt wird seine Woche.")
+        with col_s2:
+            # Schnellwahl: die naechsten 26 Wochen ab heute, als "KW 40 · ab 28.09."
+            wochen = [week_start(heute) + timedelta(days=7 * i)
+                      for i in range(26)]
+            beschriftung = {
+                w: f"KW {w.isocalendar()[1]} · ab {w.strftime('%d.%m.')}"
+                   + ("  (diese Woche)" if i == 0 else "")
+                for i, w in enumerate(wochen)}
+            aktuelle = st.session_state.selected_week
+            # Liegt die angezeigte Woche ausserhalb der Schnellwahl (etwa in
+            # der Vergangenheit), bleibt das Feld leer statt falsch zu zeigen.
+            schnell = st.selectbox(
+                "Kalenderwoche",
+                wochen,
+                index=wochen.index(aktuelle) if aktuelle in wochen else None,
+                placeholder="KW wählen …",
+                format_func=lambda w: beschriftung[w],
+                help="Springt direkt in die gewählte Kalenderwoche.")
+
+        # Beide Felder werden mit der angezeigten Woche vorbelegt; weicht
+        # eines davon ab, hat der Nutzer es gerade geaendert.
+        ziel_woche = week_start(ziel)
+        if ziel_woche != aktuelle:
+            st.session_state.selected_week = ziel_woche
+            st.rerun()
+        if schnell is not None and schnell != aktuelle:
+            st.session_state.selected_week = schnell
+            st.rerun()
+
     st.divider()
-    
+
     # ===== BUCHUNGEN LADEN =====
     ws_str = st.session_state.selected_week.strftime("%Y-%m-%d")
     bookings = ww_db.get_week_bookings(ws_str)
@@ -1720,7 +1788,7 @@ def kalender_page():
             status_text = f"🚫 Blockiert ({reason})"
             status_icon = "🚫"
         elif booking and booking.get('replacement_wanted'):
-            status_class = "booked"
+            status_class = "replacement"
             status_text = f"🔎 Vertretung gesucht ({booking.get('user_name', 'N/A')})"
             status_icon = "🔎"
         elif booking:
@@ -2036,7 +2104,14 @@ def meine_buchungen_page():
                                          type="primary"):
                                 if ww_db.set_replacement_wanted(
                                         b['id'], True, grund.strip()):
-                                    st.success("✅ Ausgeschrieben")
+                                    # Admins erfahren es sofort - sie sind
+                                    # es, die im Zweifel jemanden anrufen.
+                                    mailer.send_replacement_notice(
+                                        user['name'], user['email'],
+                                        b['slot_date'], b.get('slot_time', ''),
+                                        grund.strip())
+                                    st.success("✅ Ausgeschrieben – die "
+                                               "Verwaltung ist informiert.")
                                     st.rerun()
 
                     allowed, hinweis = can_cancel(
@@ -2422,31 +2497,61 @@ def statistik_page():
     st.divider()
 
     # ===== RANGLISTE =====
-    st.markdown("### 🏆 Rangliste")
+    ist_admin = user.get('role') == 'admin'
 
-    # Die eigene Zeile wird im Namen markiert, nicht in einer eigenen Spalte -
-    # eine Spalte ohne Ueberschrift wirkt in einer Tabelle unfertig.
-    tabelle = pd.DataFrame([{
-        'Platz': f"{e['medaille']} {e['platz']}".strip(),
-        'Name': (f"👉 {e['name']}" if e['email'] == eigene_email else e['name']),
-        'Dienste': e['dienste'],
-        'Stunden': f"{e['stunden']:g}",
-    } for e in liste])
-
-    # st.table statt st.dataframe: Das Datengitter wird von einer
-    # JS-Komponente gezeichnet, die Streamlits Theme liest und im Light Mode
-    # dunkel blieb. st.table ist schlichtes HTML und folgt unserem CSS.
-    st.table(tabelle.set_index('Platz'))
-    st.caption("Bei gleicher Anzahl teilen sich die Beteiligten den Platz.")
+    if ist_admin:
+        st.markdown("### 🏆 Rangliste")
+        # Die eigene Zeile wird im Namen markiert, nicht in einer eigenen
+        # Spalte - eine Spalte ohne Ueberschrift wirkt in einer Tabelle
+        # unfertig.
+        tabelle = pd.DataFrame([{
+            'Platz': f"{e['medaille']} {e['platz']}".strip(),
+            'Name': (f"👉 {e['name']}" if e['email'] == eigene_email else e['name']),
+            'Dienste': e['dienste'],
+            'Stunden': f"{e['stunden']:g}",
+        } for e in liste])
+        # st.table statt st.dataframe: Das Datengitter wird von einer
+        # JS-Komponente gezeichnet, die Streamlits Theme liest und im Light
+        # Mode dunkel blieb. st.table ist schlichtes HTML und folgt unserem CSS.
+        st.table(tabelle.set_index('Platz'))
+        st.caption("Bei gleicher Anzahl teilen sich die Beteiligten den Platz.")
+    elif eigener:
+        # Nutzer sehen nur ihr unmittelbares Umfeld: wer direkt vor und wer
+        # direkt hinter ihnen liegt. Die ganze Liste bleibt den Admins
+        # vorbehalten - sie hat eher entmutigt als motiviert.
+        st.markdown("### 🏆 Dein Umfeld in der Rangliste")
+        davor, _, danach = stats.nachbarn(liste, eigene_email)
+        zeilen = [
+            {'Platz': f"{e['medaille']} {e['platz']}".strip(),
+             'Name': (f"👉 {e['name']}" if e['email'] == eigene_email else e['name']),
+             'Dienste': e['dienste'],
+             'Stunden': f"{e['stunden']:g}"}
+            for e in (davor, eigener, danach) if e
+        ]
+        st.table(pd.DataFrame(zeilen).set_index('Platz'))
+        if davor is None:
+            st.caption("Vor dir steht niemand.")
+        elif danach is None:
+            st.caption("Hinter dir steht niemand – noch.")
+        st.caption("Bei gleicher Anzahl teilen sich die Beteiligten den Platz.")
 
     st.divider()
 
     # ===== VERTEILUNGEN =====
+    # Nutzer sehen die Verteilung ihrer eigenen Dienste, Admins die aller.
+    if ist_admin:
+        verteilung = gefiltert
+        st.caption("Verteilung aller Dienste")
+    else:
+        verteilung = [b for b in gefiltert
+                      if (b.get('user_email') or '').lower() == eigene_email]
+        st.caption("Verteilung deiner Dienste")
+
     col_d1, col_d2 = st.columns(2)
 
     with col_d1:
         st.markdown("### 📅 Dienste pro Monat")
-        monate = stats.pro_monat(gefiltert)
+        monate = stats.pro_monat(verteilung)
         if monate:
             df_monat = pd.DataFrame(
                 {'Monat': list(monate), 'Dienste': list(monate.values())})
@@ -2461,7 +2566,7 @@ def statistik_page():
 
     with col_d2:
         st.markdown("### 🗓️ Nach Wochentag")
-        tage = stats.pro_wochentag(gefiltert)
+        tage = stats.pro_wochentag(verteilung)
         if tage:
             df_tage = pd.DataFrame(
                 {'Wochentag': list(tage), 'Dienste': list(tage.values())})
@@ -2471,18 +2576,19 @@ def statistik_page():
             st.plotly_chart(diagramm_stil(fig_t), use_container_width=True,
                             theme=None)
 
-    # ===== GESAMTZAHLEN =====
-    st.divider()
-    st.markdown("### 📈 Insgesamt")
-    col_g1, col_g2, col_g3 = st.columns(3)
-    with col_g1:
-        st.metric("Dienste", kennzahlen['dienste'])
-    with col_g2:
-        st.metric("Stunden", f"{kennzahlen['stunden']:g}")
-    with col_g3:
-        st.metric("Aktive", kennzahlen['personen'])
+    # ===== GESAMTZAHLEN (nur Admins) =====
+    if ist_admin:
+        st.divider()
+        st.markdown("### 📈 Insgesamt")
+        col_g1, col_g2, col_g3 = st.columns(3)
+        with col_g1:
+            st.metric("Dienste", kennzahlen['dienste'])
+        with col_g2:
+            st.metric("Stunden", f"{kennzahlen['stunden']:g}")
+        with col_g3:
+            st.metric("Aktive", kennzahlen['personen'])
 
-    if user.get('role') == 'admin' and liste:
+    if ist_admin and liste:
         with st.expander("📥 Rangliste exportieren"):
             st.download_button(
                 "Als CSV herunterladen",
@@ -4293,6 +4399,22 @@ Dein {org_name} Team"""
 ⏰ Uhrzeit: {time}
 
 Gebucht am: {current_date}"""
+        },
+        'email_replacement_notice': {
+            'name': '✉️ E-Mail - Vertretung gesucht (an Verwaltung)',
+            'type': 'email',
+            'default_subject': '🔎 Vertretung gesucht: {name} - {date}',
+            'default_body': """{name} sucht eine Vertretung für einen Dienst:
+
+📅 Datum: {date}
+⏰ Uhrzeit: {time}
+📧 E-Mail: {email}
+📝 Grund: {reason}
+
+Der Dienst bleibt bei {name}, bis jemand ihn im Kalender übernimmt.
+Er ist dort rosa markiert.
+
+Gemeldet am: {current_date}"""
         },
         'email_password_reset': {
             'name': '✉️ E-Mail - Passwort zurückgesetzt',

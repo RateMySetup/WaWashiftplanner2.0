@@ -1,6 +1,6 @@
 # TODO — Wasserwacht Dienstplan 2.0
 
-Stand: 07.09.2026 · `streamlit_app.py` V9.0 auf Streamlit 1.63 / Python 3.14
+Stand: 15.09.2026 · `streamlit_app.py` V9.0 auf Streamlit 1.63 / Python 3.14
 
 **Aus der Bestandsaufnahme erledigt:** P0 1–6, P1 8–15, P2 16–19,
 P3 20–24, 26, 27.
@@ -9,6 +9,32 @@ P3 25 (Modularisierung, nach der Saison).
 
 **Was du selbst tun musst:** siehe Abschnitt „Offen" weiter unten –
 Firestore-Index, Datenschutztext freigeben, Fehlermeldungen abschalten.
+
+> **Stand 16.09.2026 (Toni):** Alle übrigen Punkte dieser Liste gelten als
+> **abgeschlossen**. Eine Watchlist/Vormerkliste wurde am 16.09. **verworfen**
+> („fördert das Buchungsverhalten nicht"). Der Kalender-Export unter *Meine
+> Termine* (ICS-Download plus Einladung per Mail) besteht bereits.
+>
+> **Umgesetzt am 16.09.2026** (lokal, noch nicht committet/deployed):
+> - Statistik: Nutzer sehen nur eigenen Stand, Platz und die beiden
+>   Nachbarn (`core_stats.nachbarn()`); Verteilungen nur eigene Dienste;
+>   volle Rangliste, Gesamtzahlen und CSV nur für Admins.
+> - Vertretung gesucht: Mail an `ADMIN_EMAIL_RECEIVER` (Vorlage
+>   `email_replacement_notice`, unter Vorlagen editierbar) und rosa Slot-Karte
+>   im Kalender (Tokens `slot_replacement_*`, WCAG-geprüft in beiden Themes).
+> - Kalender: Expander „Woche direkt wählen" mit Datumsfeld (±1 Jahr) und
+>   KW-Schnellwahl (26 Wochen). Gegenstück in der Mobile-App: Chip-Reihe.
+>
+> **Entschieden am 16.09.2026:** Push-Benachrichtigungen als **Web Push**
+> auf dieser Website (Home-Screen-App, Service Worker, VAPID) — die
+> Expo-App spielt dabei keine Rolle. Plan mit Spike (Task 0) in
+> `docs/superpowers/plans/2026-09-16-web-push-benachrichtigungen.md`.
+>
+> **Streamlit Community Cloud wird abgeschaltet** (Toni, 16.09.2026). Ab
+> jetzt zählt nur noch die Azure-Instanz; das alte Repo `Shiftplanner`
+> (Remote `origin`) ist irrelevant. Deploy: `git push target main` → Tests →
+> `deploy-azure.yml`. Ein manueller Neustart ist nicht nötig, das
+> Deployment startet den Container selbst.
 
 **Tests:** 350, laufen ohne Firebase und ohne Streamlit (`python -m pytest -q`).
 
@@ -20,7 +46,7 @@ Diese Punkte gelten für **jede** Änderung und dürfen nicht gebrochen werden:
 
 | Thema | Ist-Zustand | Konsequenz für 2.0 |
 |---|---|---|
-| **Hosting** | Streamlit Community Cloud **und** Azure App Service (seit 09.09.2026, parallel) | Beide laufen gegen dieselbe Firestore-Datenbank. Auf Azure schläft die App nicht ein, **einen persistenten Hintergrundprozess gibt es aber weiterhin nicht** – der Plan bleibt eine Streamlit-App mit einer Instanz. Solange die alte Instanz lebt, muss jede Änderung auf beiden laufen. |
+| **Hosting** | Azure App Service (seit 09.09.2026); Streamlit Community Cloud wird abgeschaltet (Entscheidung 16.09.2026) | Auf Azure schläft die App nicht ein, **einen persistenten Hintergrundprozess gibt es aber weiterhin nicht** – der Plan bleibt eine Streamlit-App mit einer Instanz. Nur noch `git push target main`. |
 | **Datenbank** | Firebase / Firestore, **mit Bestandsdaten** | Schema-Änderungen nur additiv oder mit Migrationsskript. Kein Feld umbenennen ohne Migration. |
 | **Secrets** | Eine einzige Datei (`secrets.toml`): in Streamlit.io hinterlegt, auf Azure base64-kodiert im Key Vault `kv-wawa-web-hzb` | Struktur der Keys beibehalten, sonst bricht das Deployment. Secrets gehören **nie** ins Repo. |
 | **Deadline** | Saisonstart **Mitte September 2026** (~2 Wochen) | Priorisierung nach P0 → P1 → P2. Alles was P0 ist, muss vorher fertig sein. |
@@ -431,3 +457,56 @@ alles doppelt an.
 3. **Passwort-Hashing:** Umstellung auf bcrypt beim nächsten Login freigeben?
    (Punkt 16 – Bestandsnutzer verlieren dabei nichts.)
 4. Weitere gewünschte Features (wurden für später angekündigt).
+
+---
+
+## Ideensammlung — Stand 10.09.2026
+
+Nichts davon ist entschieden, nichts davon ist ein Blocker. Gesammelt, damit
+es nicht verloren geht. Reihenfolge grob nach Nutzen je Aufwand.
+
+### 1. Betriebsüberwachung durch den Hermes-Agenten
+Der Agent liest Firestore ohnehin read-only. Naheliegend: alle paar Minuten
+`https://app-wawa-shiftplaner.azurewebsites.net` anpingen und bei HTTP ≠ 200
+oder Zeitüberschreitung eine Telegram-Nachricht schicken. Dazu ein
+Azure-Budget-Alarm auf `rg-wawa-web`, damit die 70 € nicht unbemerkt reißen.
+Kein Eingriff in die App, reine Beobachtung — passt in den Freigaberahmen.
+
+### 2. Dienstplan-Auskunft über den Agenten
+„Wer hat am Sonntag Dienst?", „Wann bin ich das nächste Mal dran?", „Ist
+nächste Woche noch was frei?" — beantwortbar aus den bestehenden
+Firestore-Lesezugriffen, ohne die App anzufassen. Erst für Toni, später
+vielleicht für alle. Wenn das kommt, wird die WhatsApp-Frage aus
+`azure-hermes/TODO.md` plötzlich sinnvoll, weil der Verein dort erreichbar ist.
+
+### 3. Unbesetzte Termine automatisch melden
+Nicht der gestrichene „automatische Aufruf an alle", sondern eine ruhige
+Variante: Der Agent meldet **an Toni**, welche Termine der nächsten drei
+Wochen unbesetzt sind. Er entscheidet dann, ob er die Rundnachricht auslöst.
+Nutzt Punkt 1 mit, kostet fast nichts extra.
+
+### 4. Jahres- bzw. Saisonbericht
+Aus `archive` und `bookings` einmal je Saison eine PDF für den Verein:
+Dienste je Person, Stunden gesamt, Ausfälle, Vertretungen. Die Daten liegen
+alle vor, die Statistikseite rechnet das Meiste bereits. Wäre das erste
+Ergebnis, das die App nach außen liefert und nicht nur nach innen.
+
+### 5. Automatisches Backup ohne Klick
+Der Export-Bereich kann bereits mailen. Ein Cron (GitHub Action, wie bei den
+Erinnerungen) schickt wöchentlich den JSON-Export an eines der Hermes-
+Mailkonten. Kostet nichts und ersetzt das Daran-Denken.
+
+### 6. PWA, sobald Azure das Produktivsystem ist
+Punkt C oben („Echte App statt Lesezeichen") ist auf Streamlit Cloud
+blockiert, weil die `index.html` nicht zugänglich ist. **Auf Azure App Service
+ist sie das.** Sobald die alte Instanz abgeschaltet ist, wird aus dem
+Lesezeichen ohne großen Aufwand eine App mit Symbol — und damit auch
+Push-Nachrichten statt E-Mail. Hängt an der offenen Entscheidung „Abschaltung
+der alten Instanz terminieren".
+
+### 7. Kleinkram
+- QR-Plakat fürs Bad mit der App-Adresse (Onboarding neuer Nutzer).
+- Eigene Auswertung „meine Dienste diese Saison" als Teil der
+  Buchungsbestätigung, nicht nur auf der Statistikseite.
+- Bei der Vertretungssuche eine Telegram-/Mail-Sammelnachricht statt stiller
+  Anzeige in der App.

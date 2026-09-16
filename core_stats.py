@@ -110,6 +110,35 @@ def abstand_nach_oben(liste, email):
     return max(fehlend, 1), naechster['name']
 
 
+def nachbarn(liste, email):
+    """Die Person direkt davor, die Person selbst, die Person direkt danach.
+
+    Fuer die Nutzeransicht der Statistik: Sie soll den eigenen Platz und die
+    beiden unmittelbaren Nachbarn sehen, nicht die ganze Liste. Bei
+    Gleichstand zaehlt der naechste *andere* Platz - wer sich Platz 3 teilt,
+    bekommt als "davor" Platz 2 und nicht die Person mit demselben Platz.
+
+    Rueckgabe: (davor, eigener, danach), jeweils Eintrag oder None.
+    """
+    eigener = eintrag_von(liste, email)
+    if not eigener:
+        return None, None, None
+
+    davor = None
+    for eintrag in reversed(liste):
+        if eintrag['platz'] < eigener['platz']:
+            davor = eintrag      # der letzte mit besserem Platz = knappster
+            break
+
+    danach = None
+    for eintrag in liste:
+        if eintrag['platz'] > eigener['platz']:
+            danach = eintrag
+            break
+
+    return davor, eigener, danach
+
+
 def pro_monat(buchungen):
     """{'YYYY-MM': anzahl}, aufsteigend sortiert."""
     zaehler = Counter()

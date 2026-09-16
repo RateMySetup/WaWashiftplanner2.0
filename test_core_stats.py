@@ -10,6 +10,7 @@ from core_stats import (
     eintrag_von,
     im_zeitraum,
     kennzahlen,
+    nachbarn,
     nur_bestaetigte,
     pro_monat,
     pro_wochentag,
@@ -232,3 +233,53 @@ def test_kennzahlen():
 
 def test_kennzahlen_leer():
     assert kennzahlen([]) == {'dienste': 0, 'stunden': 0, 'personen': 0}
+
+
+# ===== NACHBARN IN DER RANGLISTE =====
+
+def _liste_mit_vier():
+    daten = [b('a@x.de', '2026-10-01'), b('a@x.de', '2026-10-02'),
+             b('a@x.de', '2026-10-03'),
+             b('b@x.de', '2026-10-04'), b('b@x.de', '2026-10-05'),
+             b('c@x.de', '2026-10-06'),
+             b('d@x.de', '2026-10-07', zeit="09:00 - 10:00")]
+    return rangliste(daten)
+
+
+def test_nachbarn_mitte_liefert_davor_und_danach():
+    davor, eigener, danach = nachbarn(_liste_mit_vier(), 'b@x.de')
+    assert davor['email'] == 'a@x.de'
+    assert eigener['email'] == 'b@x.de'
+    assert danach['email'] == 'c@x.de'
+
+
+def test_nachbarn_an_der_spitze_hat_niemanden_davor():
+    davor, eigener, danach = nachbarn(_liste_mit_vier(), 'a@x.de')
+    assert davor is None
+    assert eigener['platz'] == 1
+    assert danach['email'] == 'b@x.de'
+
+
+def test_nachbarn_am_ende_hat_niemanden_danach():
+    # c und d haben je einen Dienst und teilen sich Platz 3; "davor" ist
+    # deshalb b auf Platz 2, nicht der gleichplatzierte c.
+    davor, eigener, danach = nachbarn(_liste_mit_vier(), 'd@x.de')
+    assert davor['email'] == 'b@x.de'
+    assert eigener['platz'] == 3
+    assert danach is None
+
+
+def test_nachbarn_bei_gleichstand_nimmt_naechsten_anderen_platz():
+    # c und d teilen sich Platz 3 - der Nachbar davor ist Platz 2, nicht
+    # der Gleichplatzierte, und danach kommt niemand.
+    daten = [b('a@x.de', '2026-10-01'), b('a@x.de', '2026-10-02'),
+             b('c@x.de', '2026-10-06'), b('d@x.de', '2026-10-07')]
+    liste = rangliste(daten)
+    davor, eigener, danach = nachbarn(liste, 'c@x.de')
+    assert davor['email'] == 'a@x.de'
+    assert eigener['platz'] == 2
+    assert danach is None
+
+
+def test_nachbarn_unbekannte_person_liefert_dreimal_none():
+    assert nachbarn(_liste_mit_vier(), 'x@x.de') == (None, None, None)

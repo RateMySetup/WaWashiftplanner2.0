@@ -76,6 +76,11 @@ LIGHT = {
     'slot_booked_border': '#B26A00',
     'slot_blocked_bg':    '#ECEFF3',
     'slot_blocked_border': '#78828F',
+    # Rosa: ein Dienst, fuer den Vertretung gesucht wird - faellt zwischen
+    # Blau (frei) und Orange (gebucht) sofort auf.
+    'slot_replacement_bg':     '#FCE4EC',
+    'slot_replacement_border': '#AD1457',
+    'accent_pink_text':        '#8E1148',
 
     'on_accent': '#FFFFFF',      # Schrift auf gefuellten Akzentflaechen
 
@@ -116,6 +121,9 @@ DARK = {
     'slot_booked_border': '#FFC062',
     'slot_blocked_bg':    '#2E3444',
     'slot_blocked_border': '#7C8798',
+    'slot_replacement_bg':     '#4A2238',
+    'slot_replacement_border': '#F48FB1',
+    'accent_pink_text':        '#F8A7C4',
 
     'on_accent': '#10131C',
 
@@ -237,10 +245,13 @@ KONTRAST_PAARE = [
     ('text_secondary', 'slot_free_bg', AA_NORMAL, 'Zusatz auf freiem Slot'),
     ('text_secondary', 'slot_booked_bg', AA_NORMAL, 'Zusatz auf gebuchtem Slot'),
     ('text_secondary', 'slot_blocked_bg', AA_NORMAL, 'Zusatz auf gesperrtem Slot'),
+    ('text_primary', 'slot_replacement_bg', AA_NORMAL, 'Text auf Vertretungs-Slot'),
+    ('text_secondary', 'slot_replacement_bg', AA_NORMAL, 'Zusatz auf Vertretungs-Slot'),
 
     # Badges: Akzentschrift auf der jeweiligen Slot-Flaeche
     ('accent_blue_text', 'slot_free_bg', AA_NORMAL, 'Badge frei'),
     ('accent_orange_text', 'slot_booked_bg', AA_NORMAL, 'Badge gebucht'),
+    ('accent_pink_text', 'slot_replacement_bg', AA_NORMAL, 'Badge Vertretung gesucht'),
     ('accent_blue_text', 'bg_secondary', AA_NORMAL, 'Akzenttext auf Karte'),
     ('accent_red_text', 'bg_secondary', AA_NORMAL, 'Fehlertext auf Karte'),
     ('accent_green_text', 'bg_secondary', AA_NORMAL, 'Erfolgstext auf Karte'),
@@ -256,6 +267,7 @@ KONTRAST_PAARE = [
     ('border_color', 'bg_secondary', 1.3, 'Rahmen sichtbar'),
     ('slot_free_border', 'slot_free_bg', AA_GROSS, 'Rahmen freier Slot'),
     ('slot_booked_border', 'slot_booked_bg', AA_GROSS, 'Rahmen gebuchter Slot'),
+    ('slot_replacement_border', 'slot_replacement_bg', AA_GROSS, 'Rahmen Vertretungs-Slot'),
 ]
 
 
