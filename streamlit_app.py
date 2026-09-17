@@ -50,6 +50,7 @@ from core_auth import (
     session_eintrag,
     token_hash,
 )
+from core_registration import email_index_key, normalize_email
 import extra_streamlit_components as stx
 
 # Adresse, die in Kalendereinladungen verlinkt wird. Bewusst die
@@ -459,13 +460,25 @@ class WasserwachtDB:
         except Exception as e:
             print(f"Admin-Erstellung fehlgeschlagen: {e}")
     
+    def _users_with_email(self, email):
+        """Find existing accounts case-insensitively, including legacy data."""
+        normalized = normalize_email(email)
+        if normalized is None:
+            return []
+        matches = []
+        # Existing documents have no normalized field, so retain a small
+        # compatibility scan rather than allowing a case-variant duplicate.
+        for doc in self.db.collection('users').stream():
+            data = doc.to_dict()
+            if normalize_email(data.get('email')) == normalized:
+                data['id'] = doc.id
+                matches.append(data)
+        return matches
+
     def get_user(self,email):
         try:
-            for doc in self.db.collection('users').where('email','==',email).limit(1).stream():
-                data = doc.to_dict()
-                data['id'] = doc.id
-                return data
-            return None
+            matches = self._users_with_email(email)
+            return matches[0] if matches else None
         except Exception as e:
             print(f"❌ get_user Fehler: {e}")
             return None
@@ -474,11 +487,19 @@ class WasserwachtDB:
                     active=True, pending_approval=False,
                     email_notifications=True, sms_notifications=False):
         try:
+            email = normalize_email(email)
+            index_key = email_index_key(email)
+            if email is None or index_key is None:
+                return False, "Bitte eine gültige E-Mail-Adresse angeben"
             if self.get_user(email):
                 return False, "E-Mail bereits registriert"
 
-            self.db.collection('users').add({
+            users = self.db.collection('users')
+            user_ref = users.document()
+            index_ref = self.db.collection('user_email_index').document(index_key)
+            data = {
                 'email': email, 'name': name, 'phone': phone,
+                'email_normalized': email,
                 'password_hash': hash_pw(password),
                 'role': role, 'active': active,
                 'pending_approval': pending_approval,
@@ -492,7 +513,25 @@ class WasserwachtDB:
                 'email_notifications': email_notifications,
                 'sms_notifications': sms_notifications,
                 'created_at': firestore.SERVER_TIMESTAMP
-            })
+            }
+
+            # A deterministic index document makes one normalized email
+            # reservable exactly once, even for double-clicks or parallel
+            # registration requests.
+            @firestore.transactional
+            def _reserve_email(transaction):
+                if transaction.get(index_ref).exists:
+                    return False
+                transaction.set(index_ref, {
+                    'email_normalized': email,
+                    'user_id': user_ref.id,
+                    'created_at': firestore.SERVER_TIMESTAMP,
+                })
+                transaction.set(user_ref, data)
+                return True
+
+            if not _reserve_email(self.db.transaction()):
+                return False, "E-Mail bereits registriert"
             print(f"✅ User erstellt: {email} (aktiv: {active})")
             return True, "Registrierung erfolgreich"
         except Exception as e:
