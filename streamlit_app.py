@@ -1673,6 +1673,7 @@ def show_navigation():
             ('kalender', '📅 Kalender'),
             ('meine_buchungen', '📋 Meine Buchungen'),
             ('profil', '👤 Profil'),
+            ('problem', '🐞 Problem melden'),
             ('statistik', '📊 Statistik'),
             ('handbuch', '📖 Handbuch'),
             ('impressum', '⚖️ Impressum'),
@@ -4946,6 +4947,9 @@ def main():
     elif page == 'datenschutz':
         datenschutz_page()
         
+    elif page == 'problem':
+        st.title("🐞 Problem melden")
+        problem_melden(st.session_state.user)
     elif page == 'profil':
         profil_page()
         
