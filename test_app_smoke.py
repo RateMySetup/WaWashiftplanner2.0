@@ -390,3 +390,33 @@ def test_cookie_auftrag_wird_vorgemerkt_und_abgeraeumt(app, monkeypatch):
     # Zweiter Durchlauf schreibt nichts mehr
     app.ausstehenden_cookie_schreiben()
     assert len(geschrieben) == 1
+
+
+def test_problem_melden_sendet_an_hermes_postfach(app):
+    """Formular im Profil: gueltige Meldung geht als Mail raus und wird gespeichert."""
+    from streamlit.testing.v1 import AppTest
+
+    def seite():
+        import sys
+        from unittest import mock
+        a = sys.modules['streamlit_app']
+        import streamlit as st
+
+        def gesendet(to, subject, body, **kw):
+            st.session_state['mail'] = (to, subject, kw.get('reply_to'))
+            return True, 'ok'
+        with mock.patch.object(a.ww_db, 'feedback_times', return_value=[]), \
+             mock.patch.object(a.ww_db, 'add_feedback', return_value=True), \
+             mock.patch.object(a.mailer, 'send', gesendet):
+            a.problem_melden({'id': 'u1', 'email': 'max@example.org', 'name': 'Max', 'role': 'user'})
+
+    at = AppTest.from_function(seite).run()
+    assert not at.exception
+    at.text_area[0].input('Beim Buchen am Samstag kommt eine Fehlermeldung')
+    at.button[0].click().run()
+    assert not at.exception
+    ziel, betreff, antwort = at.session_state['mail']
+    assert ziel == 'mex100bot@gmail.com'
+    assert betreff.startswith('[Feedback][WaWa] Fehler: Beim Buchen am Samstag')
+    assert antwort == 'max@example.org'
+    assert at.session_state['feedback_gesendet'].startswith('FB-')

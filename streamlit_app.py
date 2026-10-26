@@ -32,6 +32,7 @@ import core_ics as ics
 import core_import as nutzerimport
 import core_stats as stats
 import core_styles as styles
+import core_feedback as feedback
 from core_rules import (
     DEFAULT_PAUSE_START,
     DEFAULT_PAUSE_END,
@@ -970,6 +971,29 @@ class WasserwachtDB:
             print(f"[Fehler] set_booking_note: {e}")
             return False
 
+    def add_feedback(self, daten):
+        """Rueckmeldung ablegen (Collection 'feedback', nur anlegen)."""
+        try:
+            self.db.collection('feedback').document(daten['id']).set(
+                {**daten, 'created_at': firestore.SERVER_TIMESTAMP})
+            return True
+        except Exception as e:
+            print(f"[Fehler] add_feedback: {e}")
+            return False
+
+    def feedback_times(self, nutzer_id):
+        """Zeitpunkte der Meldungen eines Nutzers (fuer das Tageslimit)."""
+        try:
+            zeiten = []
+            for doc in self.db.collection('feedback').where('nutzer_id', '==', nutzer_id).stream():
+                t = doc.to_dict().get('created_at')
+                if isinstance(t, datetime):
+                    zeiten.append(t)
+            return zeiten
+        except Exception as e:
+            print(f"[Fehler] feedback_times: {e}")
+            return []
+
     def get_setting(self,key,default=''):
         try:
             doc = self.db.collection('settings').document(key).get()
@@ -1022,7 +1046,7 @@ class Mailer:
             self.fromname = "Dienstplan"
     
     def send(self, to, subject, body, attachments=None, html=False,
-             kalender=None):
+             kalender=None, reply_to=None):
         """
         Sendet eine E-Mail mit detailliertem Error-Handling
         Returns: (success: bool, error_message: str)
@@ -1039,6 +1063,8 @@ class Mailer:
             msg['To'] = to
             msg['Subject'] = subject
             msg['Date'] = email.utils.formatdate(localtime=True)
+            if reply_to:
+                msg['Reply-To'] = reply_to
             msg.attach(MIMEText(body, 'html' if html else 'plain', 'utf-8'))
             
             if kalender:
@@ -1346,6 +1372,16 @@ Gemeldet am: {current_date}""",
                             date=fmt_de(slot_date), time=slot_time,
                             reason=grund or 'Nicht angegeben')
         )
+
+    def send_feedback(self, fb):
+        """Rueckmeldung an das Hermes-Postfach; Antworten gehen an den Nutzer."""
+        try:
+            ziel = st.secrets.get("FEEDBACK_EMAIL", "")
+        except Exception:
+            ziel = ""
+        return self.send(ziel or feedback.FEEDBACK_EMAIL_DEFAULT,
+                         feedback.betreff(fb), feedback.mailtext(fb),
+                         reply_to=fb.get('email') or None)
 
     def send_registration_notice(self, user_name, user_email, user_phone):
         """Admin ueber eine neue, freizugebende Registrierung informieren"""
@@ -2198,7 +2234,10 @@ def profil_page():
         st.title("👤 Mein Profil")
     
     # Tabs
-    tab1, tab2, tab3 = st.tabs(["📋 Profil-Info", "🔔 Benachrichtigungen", "🔒 Sicherheit"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📋 Profil-Info", "🔔 Benachrichtigungen", "🔒 Sicherheit", "🐞 Problem melden"])
+
+    with tab4:
+        problem_melden(user)
     
     # ===== TAB 1: PROFIL-INFO =====
     with tab1:
@@ -2439,6 +2478,53 @@ def profil_page():
                         st.balloons()
                     else:
                         st.error("❌ Fehler beim Ändern des Passworts")
+
+def problem_melden(user):
+    """Einfaches Formular: Fehler, Verbesserung oder Frage an den Betreiber."""
+    st.subheader("Problem melden")
+    st.caption("Etwas funktioniert nicht oder du hast eine Idee? Kurz beschreiben und senden. "
+               "Name und E-Mail werden mitgeschickt, damit wir antworten können.")
+    gesendet = st.session_state.get('feedback_gesendet')
+    if gesendet:
+        st.success(f"✅ Danke! Deine Meldung ist angekommen (Nr. {gesendet}).")
+    with st.form("problem_melden", clear_on_submit=True):
+        art = st.radio("Worum geht es?", list(feedback.ARTEN),
+                       format_func=feedback.ARTEN.get, horizontal=True)
+        seite = st.selectbox("Wo ist es passiert?", list(feedback.SEITEN),
+                             format_func=feedback.SEITEN.get)
+        text = st.text_area("Was ist passiert?", max_chars=feedback.MAX_LAENGE, height=150,
+                            placeholder="z. B. Beim Buchen am Samstag kommt eine Fehlermeldung …")
+        senden = st.form_submit_button("📨 Senden", type="primary", use_container_width=True)
+    if not senden:
+        return
+    fehler = feedback.pruefen(art, text)
+    if fehler:
+        st.error(f"❌ {fehler}")
+        return
+    jetzt = datetime.now(TZ)
+    if feedback.limit_erreicht(ww_db.feedback_times(user.get('id')), jetzt):
+        st.warning("Du hast heute schon mehrere Meldungen geschickt. Bitte morgen wieder.")
+        return
+    try:
+        browser = st.context.headers.get("User-Agent", "")
+    except Exception:
+        browser = ""
+    fb = {
+        'id': feedback.neue_id(jetzt), 'art': art, 'seite': seite,
+        'text': feedback.text_bereinigen(text), 'version': VERSION,
+        'rolle': user.get('role', 'user'), 'nutzer_id': user.get('id', ''),
+        'email': user.get('email', ''), 'name': user.get('name', ''),
+        'browser': browser, 'zeit': jetzt.isoformat(timespec='seconds'),
+    }
+    gespeichert = ww_db.add_feedback(feedback.datensatz(fb))
+    ok, info = mailer.send_feedback(fb)
+    if not ok:
+        print(f"[Fehler] Feedback-Mail {fb['id']}: {info}")
+    if ok or gespeichert:
+        st.session_state.feedback_gesendet = fb['id']
+        st.rerun()
+    st.error("❌ Senden hat nicht geklappt. Bitte später erneut versuchen.")
+
 
 # ===== STATISTIK =====
 def statistik_page():
@@ -4698,6 +4784,7 @@ Verantwortlich für die Verarbeitung der Daten in diesem Dienstplan ist
 - **Telefonnummer** (freiwillig) – nur für SMS-Benachrichtigungen
 - **Passwort** – ausschließlich als nicht rückrechenbarer Hash gespeichert
 - **Buchungen** – welcher Termin von wem übernommen wurde, samt Zeitpunkt
+- **Problem-Meldungen** (freiwillig) – Text, Name, E-Mail und Browser-Kennung; gehen per E-Mail an den Betreiber und werden zur Bearbeitung gespeichert
   der Buchung und einer etwaigen Stornierung
 
 ### 3. Wozu
