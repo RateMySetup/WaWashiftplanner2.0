@@ -261,9 +261,9 @@ in dieselbe Firestore-Datenbank. Sie ist bis auf Weiteres das Produktivsystem.
 ### ⚠️ Warnung: `origin` zeigt auf das falsche Repo
 
 In diesem Arbeitsverzeichnis zeigt `origin` auf das **alte** Repo
-`stemplinger11-Streamlit/Shiftplanner`, und `main` verfolgt ausgerechnet
+`RateMySetup/Shiftplanner`, und `main` verfolgt ausgerechnet
 `origin/main`. Das richtige Ziel ist `target`
-(`stemplinger11-Streamlit/WaWashiftplanner2.0`).
+(`RateMySetup/WaWashiftplanner2.0`).
 
 **Ein bloßes `git push` schreibt also in die falsche Ablage.** Bis das Tracking
 umgestellt ist, gilt ausnahmslos:
@@ -286,13 +286,13 @@ verfolgt nach wie vor `origin/main`, also das **alte** Repo.
 Stand 09.09.2026: „Tests" lief mit `success` durch, „Deploy nach Azure" ist
 angesprungen und nach drei Sekunden am Schritt **„An Azure anmelden"**
 gescheitert
-([Lauf 34358842682](https://github.com/stemplinger11-Streamlit/WaWashiftplanner2.0/actions/runs/34358842682)).
+([Lauf 34358842682](https://github.com/RateMySetup/WaWashiftplanner2.0/actions/runs/34358842682)).
 Alle folgenden Schritte wurden übersprungen; die laufende App auf Azure ist
 davon unberührt.
 
 Geprüft und in Ordnung: Die föderierte Anmeldung an
 `gh-deploy-wawa-shiftplaner` trägt genau das richtige Subject
-`repo:stemplinger11-Streamlit/WaWashiftplanner2.0:ref:refs/heads/main`, die
+`repo:RateMySetup/WaWashiftplanner2.0:ref:refs/heads/main`, die
 Rollenzuweisung *Website Contributor* auf `app-wawa-shiftplaner` existiert,
 und der Workflow setzt `permissions: id-token: write`.
 

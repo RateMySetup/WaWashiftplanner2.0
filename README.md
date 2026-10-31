@@ -4,7 +4,7 @@ Dienstplan der Wasserwacht: Streamlit-App mit Firestore-Anbindung.
 Nutzer buchen wöchentliche Schichten, Administratoren verwalten Buchungen,
 Konten und Benachrichtigungen.
 
-Weiterentwicklung des produktiven [Shiftplanner](https://github.com/stemplinger11-Streamlit/Shiftplanner)
+Weiterentwicklung des produktiven [Shiftplanner](https://github.com/RateMySetup/Shiftplanner)
 auf gemeinsamer Datenbasis.
 
 ---

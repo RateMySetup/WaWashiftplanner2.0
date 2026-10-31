@@ -751,7 +751,7 @@ cat > "$SCRATCHPAD/fic.json" <<'JSON'
 {
   "name": "gh-main",
   "issuer": "https://token.actions.githubusercontent.com",
-  "subject": "repo:stemplinger11-Streamlit/WaWashiftplanner2.0:ref:refs/heads/main",
+  "subject": "repo:RateMySetup/WaWashiftplanner2.0:ref:refs/heads/main",
   "audiences": ["api://AzureADTokenExchange"]
 }
 JSON
@@ -841,10 +841,10 @@ jobs:
 - [ ] **Step 5: GitHub-Variablen setzen**
 
 ```bash
-gh variable set AZURE_CLIENT_ID       --repo stemplinger11-Streamlit/WaWashiftplanner2.0 --body "$APP_ID"
-gh variable set AZURE_TENANT_ID       --repo stemplinger11-Streamlit/WaWashiftplanner2.0 --body "78d975d6-0408-4e64-a71a-6f34f8596fec"
-gh variable set AZURE_SUBSCRIPTION_ID --repo stemplinger11-Streamlit/WaWashiftplanner2.0 --body "6e87d817-7495-412d-93e4-fad170123e80"
-gh variable list --repo stemplinger11-Streamlit/WaWashiftplanner2.0
+gh variable set AZURE_CLIENT_ID       --repo RateMySetup/WaWashiftplanner2.0 --body "$APP_ID"
+gh variable set AZURE_TENANT_ID       --repo RateMySetup/WaWashiftplanner2.0 --body "78d975d6-0408-4e64-a71a-6f34f8596fec"
+gh variable set AZURE_SUBSCRIPTION_ID --repo RateMySetup/WaWashiftplanner2.0 --body "6e87d817-7495-412d-93e4-fad170123e80"
+gh variable list --repo RateMySetup/WaWashiftplanner2.0
 ```
 Expected: drei Variablen. Es sind **Variablen**, keine Secrets — keiner der
 drei Werte ist geheim.
@@ -867,9 +867,9 @@ Rolle Website Contributor gilt nur fuer diese eine Web App."
 - [ ] **Step 7: Workflow von Hand auslösen und prüfen**
 
 ```bash
-gh workflow run "Deploy nach Azure" --repo stemplinger11-Streamlit/WaWashiftplanner2.0
+gh workflow run "Deploy nach Azure" --repo RateMySetup/WaWashiftplanner2.0
 sleep 30
-gh run list --repo stemplinger11-Streamlit/WaWashiftplanner2.0 --workflow "Deploy nach Azure" --limit 1
+gh run list --repo RateMySetup/WaWashiftplanner2.0 --workflow "Deploy nach Azure" --limit 1
 ```
 Expected: Lauf endet mit `success`, der Schritt „Erreichbarkeit pruefen"
 meldet `HTTP 200`.

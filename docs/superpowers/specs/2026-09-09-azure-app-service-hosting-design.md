@@ -178,7 +178,7 @@ bezieht, wird um den Hinweis auf App Service ergänzt.
 
 ## 8. Deployment
 
-GitHub Actions im Repository `stemplinger11-Streamlit/WaWashiftplanner2.0`
+GitHub Actions im Repository `RateMySetup/WaWashiftplanner2.0`
 (Remote `target`), Auslöser: Push auf `main`.
 
 - Die Anmeldung an Azure erfolgt über **OIDC mit föderierten Anmeldedaten**, nicht
