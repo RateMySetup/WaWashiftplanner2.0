@@ -420,3 +420,43 @@ def test_problem_melden_sendet_an_hermes_postfach(app):
     assert betreff.startswith('[Feedback][WaWa] Fehler: Beim Buchen am Samstag')
     assert antwort == 'max@example.org'
     assert at.session_state['feedback_gesendet'].startswith('FB-')
+
+
+def test_einstellungen_aus_zwischenspeicher(app):
+    """Einstellungen: eine Abfrage fuer viele Zugriffe, set_setting wirkt sofort."""
+    import core_cache
+    core_cache.einstellungen.leeren()
+    dok = mock.MagicMock(id='cancel_deadline_hours')
+    dok.to_dict.return_value = {'value': 36}
+    with mock.patch.object(app.ww_db, 'db') as fake_db:
+        stream = fake_db.collection.return_value.stream
+        stream.return_value = [dok]
+        for _ in range(5):
+            assert app.get_cancel_deadline_hours() == 36
+        assert stream.call_count == 1
+
+        dok.to_dict.return_value = {'value': 12}
+        assert app.ww_db.set_setting('cancel_deadline_hours', 12)
+        assert app.get_cancel_deadline_hours() == 12
+        assert stream.call_count == 2
+    core_cache.einstellungen.leeren()
+
+
+def test_gesperrte_termine_aus_zwischenspeicher(app):
+    """Gesperrte Termine: gecacht, Sperren/Entsperren leert den Speicher."""
+    import core_cache
+    core_cache.gesperrte_termine.leeren()
+    dok = mock.MagicMock(id='2026-10-13')
+    dok.to_dict.return_value = {'reason': 'Kirta'}
+    with mock.patch.object(app.ww_db, 'db') as fake_db:
+        stream = fake_db.collection.return_value.stream
+        stream.return_value = [dok]
+        assert app.ww_db.get_blocked_dates() == {'2026-10-13': 'Kirta'}
+        assert app.ww_db.get_blocked_dates() == {'2026-10-13': 'Kirta'}
+        assert stream.call_count == 1
+
+        stream.return_value = []
+        assert app.ww_db.unblock_date('2026-10-13')
+        assert app.ww_db.get_blocked_dates() == {}
+        assert stream.call_count == 2
+    core_cache.gesperrte_termine.leeren()

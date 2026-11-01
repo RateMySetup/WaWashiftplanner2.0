@@ -33,6 +33,7 @@ import core_import as nutzerimport
 import core_stats as stats
 import core_styles as styles
 import core_feedback as feedback
+import core_cache as cache
 from core_rules import (
     DEFAULT_PAUSE_START,
     DEFAULT_PAUSE_END,
@@ -164,6 +165,8 @@ def get_blocked_dates(neu_laden=False):
     """{'YYYY-MM-TT': grund} der vom Admin gesperrten Termine."""
     global _gesperrte_termine
     if _gesperrte_termine is None or neu_laden:
+        if neu_laden:
+            cache.gesperrte_termine.leeren()
         _gesperrte_termine = ww_db.get_blocked_dates()
     return _gesperrte_termine
 
@@ -440,7 +443,13 @@ class WasserwachtDB:
             print("⚠️ ADMIN_EMAIL/ADMIN_PASSWORD nicht gesetzt - kein Admin angelegt")
             return
 
+        # Die Klasse wird bei jedem Rerun neu erzeugt; die Firestore-Suche
+        # nach dem Admin reicht aber einmal je Prozessstart.
+        if cache.admin_geprueft.is_set():
+            return
+
         if self.get_user(email):
+            cache.admin_geprueft.set()
             return
 
         try:
@@ -458,6 +467,7 @@ class WasserwachtDB:
                 'created_at': firestore.SERVER_TIMESTAMP
             })
             print(f"✅ Admin erstellt: {email}")
+            cache.admin_geprueft.set()
         except Exception as e:
             print(f"Admin-Erstellung fehlgeschlagen: {e}")
     
@@ -928,10 +938,16 @@ class WasserwachtDB:
     # ===== VOM ADMIN GESPERRTE TERMINE =====
 
     def get_blocked_dates(self):
-        """Alle gesperrten Termine als {'YYYY-MM-TT': grund}."""
-        try:
+        """Alle gesperrten Termine als {'YYYY-MM-TT': grund}.
+
+        Zwischengespeichert (core_cache); block_dates/unblock_date leeren den
+        Speicher, eigene Aenderungen sind also sofort sichtbar.
+        """
+        def laden():
             return {doc.id: (doc.to_dict() or {}).get('reason', '')
                     for doc in self.db.collection('blocked_dates').stream()}
+        try:
+            return dict(cache.gesperrte_termine.get(laden))
         except Exception as e:
             print(f"[Fehler] get_blocked_dates: {e}")
             return {}
@@ -947,6 +963,7 @@ class WasserwachtDB:
                     'blocked_at': firestore.SERVER_TIMESTAMP,
                 })
             batch.commit()
+            cache.gesperrte_termine.leeren()
             print(f"[OK] {len(daten)} Termin(e) gesperrt: {grund}")
             return True
         except Exception as e:
@@ -956,6 +973,7 @@ class WasserwachtDB:
     def unblock_date(self, datum):
         try:
             self.db.collection('blocked_dates').document(datum).delete()
+            cache.gesperrte_termine.leeren()
             return True
         except Exception as e:
             print(f"[Fehler] unblock_date: {e}")
@@ -995,9 +1013,11 @@ class WasserwachtDB:
             return []
 
     def get_setting(self,key,default=''):
+        """Einstellung aus dem Zwischenspeicher (alle mit EINER Abfrage geladen)."""
         try:
-            doc = self.db.collection('settings').document(key).get()
-            return doc.to_dict().get('value',default) if doc.exists else default
+            werte = cache.einstellungen.get(lambda: cache.einstellungen_aus_dokumenten(
+                self.db.collection('settings').stream()))
+            return werte.get(key, default)
         except:
             return default
     
@@ -1007,6 +1027,7 @@ class WasserwachtDB:
                 'value':value,
                 'updated_at':firestore.SERVER_TIMESTAMP
             },merge=True)
+            cache.einstellungen.leeren()
             return True
         except:
             return False
