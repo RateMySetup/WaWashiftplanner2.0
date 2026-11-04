@@ -6,6 +6,7 @@ core_rules.py, damit sie ohne App und ohne Datenbank testbar sind.
 """
 import streamlit as st
 import io
+import time
 import json
 import zipfile
 from datetime import datetime, timedelta
@@ -646,9 +647,14 @@ class WasserwachtDB:
             print(f"❌ delete_sessions_of_user Fehler: {e}")
             return 0
 
-    def get_pending_users(self):
-        """Konten, die auf Freigabe durch einen Admin warten."""
-        return [u for u in self.get_all_users()
+    def get_pending_users(self, users=None):
+        """Konten, die auf Freigabe durch einen Admin warten.
+
+        users: bereits geladene Nutzerliste, spart einen zweiten Vollscan.
+        """
+        if users is None:
+            users = self.get_all_users()
+        return [u for u in users
                 if u.get('pending_approval') and not u.get('active', True)]
 
     def approve_user(self, uid):
@@ -3635,7 +3641,7 @@ def benutzer_page():
     st.title("👥 Benutzerverwaltung")
     
     users = ww_db.get_all_users()
-    pending = ww_db.get_pending_users()
+    pending = ww_db.get_pending_users(users)
     # Eine Abfrage statt einer je Nutzer (vorher N+1 bei jedem Rerun)
     buchungen_je_nutzer = ww_db.count_bookings_per_user()
 
@@ -4984,4 +4990,12 @@ def main():
         st.error(f"❌ Unbekannte Seite: {page}")
 
 if __name__ == "__main__":
-    main()
+    # Eine Zeile je Skriptlauf im Container-Log (Azure Log Stream), damit
+    # langsame Seiten messbar sind. Laeuft auch bei st.rerun()/st.stop().
+    _lauf_start = time.perf_counter()
+    try:
+        main()
+    finally:
+        print(f"[perf] seite={st.session_state.get('page', '-')} "
+              f"dauer_ms={(time.perf_counter() - _lauf_start) * 1000:.0f}",
+              flush=True)

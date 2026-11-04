@@ -11,6 +11,7 @@ wirkungslos sind, aber trotzdem auf Existenz geprueft werden.
 
     python -m pytest test_app_smoke.py -v
 """
+from pathlib import Path
 import sys
 import types
 from unittest import mock
@@ -460,3 +461,18 @@ def test_gesperrte_termine_aus_zwischenspeicher(app):
         assert app.ww_db.get_blocked_dates() == {}
         assert stream.call_count == 2
     core_cache.gesperrte_termine.leeren()
+
+
+def test_offene_freigaben_ohne_zweiten_vollscan(app):
+    """Benutzerverwaltung: bereits geladene Nutzer werden wiederverwendet."""
+    nutzer = [{'id': 'a', 'pending_approval': True, 'active': False},
+              {'id': 'b', 'active': True}]
+    with mock.patch.object(app.ww_db, 'db') as fake_db:
+        assert [u['id'] for u in app.ww_db.get_pending_users(nutzer)] == ['a']
+        assert fake_db.collection.call_count == 0
+
+
+def test_produktion_ohne_datei_watcher():
+    """Im Container pollt Streamlit keine Quelldateien (Deploy = Neustart)."""
+    startskript = (Path(__file__).parent / 'startup.sh').read_text()
+    assert '--server.fileWatcherType none' in startskript
