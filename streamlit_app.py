@@ -210,26 +210,47 @@ def generate_random_password(length=8):
 # das Cookie-Handling aus, muss der normale Login trotzdem funktionieren -
 # ein Fehler hier darf niemanden aussperren.
 
-# Der Manager wird bei JEDEM Skriptlauf neu erzeugt - bewusst ohne Cache:
+# Lesen geht ohne Komponente: st.context.cookies enthaelt die Cookies, die
+# der Browser beim Aufbau der Verbindung mitgeschickt hat. Die Komponente
+# (eigenes iframe mit Bootstrap und JS-Chunks, plus ein zusaetzlicher
+# Skriptlauf, bis sie antwortet) kostete beim Erstaufbau rund 1,5 s und wird
+# deshalb nur noch erzeugt, wenn wirklich geschrieben oder geloescht wird.
+#
+# Der Manager wird hoechstens einmal je Skriptlauf erzeugt - bewusst ohne
+# Cache:
 #   * Sein Konstruktor rendert eine Komponente. Streamlit verbietet Widgets
 #     in gecachten Funktionen und bricht dort mit CachedWidgetWarning ab.
 #   * Er liest die Cookies im Konstruktor in self.cookies. Eine ueber
 #     mehrere Laeufe wiederverwendete Instanz lieferte veraltete Werte.
-# Schlaegt die Erzeugung fehl, bleibt der Manager None und die App laeuft
-# ohne "Angemeldet bleiben" weiter - der normale Login darf nie blockieren.
-try:
-    _cookie_manager = stx.CookieManager(key='wawa_cookies')
-except Exception as _cookie_fehler:
-    print(f"⚠️ Cookie-Manager nicht verfügbar: {_cookie_fehler}")
-    _cookie_manager = None
+# Die Modulvariablen werden bei jedem Rerun neu gesetzt, weil Streamlit das
+# Skript komplett neu ausfuehrt. Schlaegt die Erzeugung fehl, bleibt der
+# Manager None - der normale Login darf nie blockieren.
+_cookie_manager = None
+_cookie_manager_versucht = False
 
 
 def get_cookie_manager():
-    """Der Manager dieses Skriptlaufs, oder None wenn nicht verfuegbar."""
+    """Der Manager dieses Skriptlaufs (bei Bedarf erzeugt), oder None."""
+    global _cookie_manager, _cookie_manager_versucht
+    if not _cookie_manager_versucht:
+        _cookie_manager_versucht = True
+        try:
+            _cookie_manager = stx.CookieManager(key='wawa_cookies')
+        except Exception as fehler:
+            print(f"⚠️ Cookie-Manager nicht verfügbar: {fehler}")
+            _cookie_manager = None
     return _cookie_manager
 
 
 def cookie_lesen(name):
+    """Cookie aus der Verbindung des Browsers, ohne Komponente.
+
+    Nur wenn st.context nicht verfuegbar ist, wird die Komponente gefragt.
+    """
+    try:
+        return st.context.cookies.get(name) or None
+    except Exception as e:
+        print(f"⚠️ st.context.cookies nicht lesbar: {e}")
     try:
         manager = get_cookie_manager()
         if manager is None:
@@ -286,6 +307,9 @@ def cookie_spaeter_setzen(token, tage):
     alles stimmte.
     """
     st.session_state['cookie_zu_setzen'] = (token, tage)
+    # st.context.cookies kennt nur Cookies vom Verbindungsaufbau. Damit das
+    # Abmelden in derselben Sitzung das neue Token findet, hier merken.
+    st.session_state['sitzungs_token'] = token
 
 
 def ausstehenden_cookie_schreiben():
@@ -308,12 +332,9 @@ def sitzung_aus_cookie_wiederherstellen():
 
     token = cookie_lesen(SESSION_COOKIE_NAME)
     if not token:
-        # Die Komponente liefert beim allerersten Lauf noch nichts zurueck.
-        # Deshalb wird erst beim zweiten Durchlauf endgueltig aufgegeben.
-        if st.session_state.get('cookie_zweiter_versuch'):
-            st.session_state.cookie_geprueft = True
-        else:
-            st.session_state.cookie_zweiter_versuch = True
+        # st.context liefert die Cookies schon im ersten Lauf - kein
+        # zweiter Versuch noetig wie frueher mit der Komponente.
+        st.session_state.cookie_geprueft = True
         return False
 
     nutzer = ww_db.get_session_user(token)
@@ -325,6 +346,7 @@ def sitzung_aus_cookie_wiederherstellen():
     st.session_state.user = nutzer
     st.session_state.last_activity = datetime.now()
     st.session_state.dauersitzung = True
+    st.session_state.sitzungs_token = token
     return True
 
 
@@ -1669,7 +1691,8 @@ def login_page():
 def logout():
     # Erst die Dauersitzung beenden, dann die Sitzung im Speicher leeren -
     # sonst gilt das Cookie weiter und meldet sofort wieder an.
-    token = cookie_lesen(SESSION_COOKIE_NAME)
+    token = (st.session_state.get('sitzungs_token')
+             or cookie_lesen(SESSION_COOKIE_NAME))
     if token:
         ww_db.delete_session(token)
         cookie_loeschen(SESSION_COOKIE_NAME)
@@ -1677,7 +1700,7 @@ def logout():
     st.session_state.user = None
     st.session_state.page = 'kalender'
     for schluessel in ('last_activity', 'dauersitzung', 'cookie_geprueft',
-                       'cookie_zweiter_versuch'):
+                       'cookie_zweiter_versuch', 'sitzungs_token'):
         st.session_state.pop(schluessel, None)
     st.rerun()
 

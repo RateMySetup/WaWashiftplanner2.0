@@ -476,3 +476,35 @@ def test_produktion_ohne_datei_watcher():
     """Im Container pollt Streamlit keine Quelldateien (Deploy = Neustart)."""
     startskript = (Path(__file__).parent / 'startup.sh').read_text()
     assert '--server.fileWatcherType none' in startskript
+
+
+def test_cookie_lesen_ohne_komponente(app, monkeypatch):
+    """Erstaufbau: Lesen ueber st.context, ohne das Cookie-iframe zu laden."""
+    erzeugt = []
+    monkeypatch.setattr(app, 'get_cookie_manager',
+                        lambda: erzeugt.append(1) or None)
+    kontext = types.SimpleNamespace(
+        cookies={app.SESSION_COOKIE_NAME: 'tok-123'})
+    monkeypatch.setattr(app.st, 'context', kontext)
+    assert app.cookie_lesen(app.SESSION_COOKIE_NAME) == 'tok-123'
+    assert erzeugt == []
+
+
+def test_ohne_cookie_reicht_ein_lauf(app, monkeypatch):
+    """Kein Cookie: das Login erscheint sofort, ohne zweiten Durchlauf."""
+    monkeypatch.setattr(app.st, 'context', types.SimpleNamespace(cookies={}))
+    app.st.session_state.clear()
+    assert app.sitzung_aus_cookie_wiederherstellen() is False
+    assert app.st.session_state.get('cookie_geprueft') is True
+
+
+def test_wiederhergestellte_sitzung_merkt_token(app, monkeypatch):
+    """Das Token bleibt fuers Abmelden in derselben Sitzung greifbar."""
+    monkeypatch.setattr(app.st, 'context', types.SimpleNamespace(
+        cookies={app.SESSION_COOKIE_NAME: 'tok-456'}))
+    monkeypatch.setattr(app.ww_db, 'get_session_user',
+                        lambda token: {'id': 'u1', 'name': 'Test'})
+    app.st.session_state.clear()
+    assert app.sitzung_aus_cookie_wiederherstellen() is True
+    assert app.st.session_state.get('sitzungs_token') == 'tok-456'
+    app.st.session_state.clear()
