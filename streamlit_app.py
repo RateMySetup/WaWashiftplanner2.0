@@ -554,7 +554,10 @@ class WasserwachtDB:
             # registration requests.
             @firestore.transactional
             def _reserve_email(transaction):
-                if transaction.get(index_ref).exists:
+                # Nicht transaction.get(index_ref): das liefert in google-cloud-firestore 2.x
+                # einen Generator, kein Dokument. DocumentReference.get(transaction=…) liest
+                # innerhalb der Transaktion und gibt den Snapshot zurueck.
+                if index_ref.get(transaction=transaction).exists:
                     return False
                 transaction.set(index_ref, {
                     'email_normalized': email,

@@ -508,3 +508,31 @@ def test_wiederhergestellte_sitzung_merkt_token(app, monkeypatch):
     assert app.sitzung_aus_cookie_wiederherstellen() is True
     assert app.st.session_state.get('sitzungs_token') == 'tok-456'
     app.st.session_state.clear()
+
+
+def _registrierungs_db(app, index_existiert):
+    """Datenbank-Attrappe mit dem echten Verhalten von google-cloud-firestore 2.29:
+    Transaction.get(DocumentReference) liefert einen Generator, kein Dokument
+    (Ursache des Fehlers „'generator' object has no attribute 'exists'“, 16.11.2026)."""
+    db = mock.MagicMock()
+    tx = mock.MagicMock()
+    tx.get.side_effect = lambda ref, **kw: (s for s in [mock.MagicMock(exists=index_existiert)])
+    db.transaction.return_value = tx
+    index_ref = db.collection.return_value.document.return_value
+    index_ref.get.return_value = mock.MagicMock(exists=index_existiert)
+    w = app.WasserwachtDB.__new__(app.WasserwachtDB)
+    w.db = db
+    w.get_user = lambda email: None
+    return w, tx
+
+
+def test_registrierung_mit_firestore_transaktion(app):
+    with mock.patch.object(app.firestore, 'transactional', lambda f: f, create=True):
+        w, tx = _registrierungs_db(app, index_existiert=False)
+        ok, msg = w.create_user('neu@test.de', 'Neu', '', 'Passwort123')
+        assert (ok, msg) == (True, 'Registrierung erfolgreich')
+        assert tx.set.call_count == 2          # Index-Dokument und Nutzer
+        w, tx = _registrierungs_db(app, index_existiert=True)
+        ok, msg = w.create_user('neu@test.de', 'Neu', '', 'Passwort123')
+        assert (ok, msg) == (False, 'E-Mail bereits registriert')
+        assert tx.set.call_count == 0
