@@ -1133,8 +1133,11 @@ class Mailer:
                 msg.attach(teil)
 
             if attachments:
-                for filename, data in attachments:
-                    part = MIMEBase('application', 'octet-stream')
+                for anhang in attachments:
+                    filename, data = anhang[0], anhang[1]
+                    haupt, _, unter = (anhang[2] if len(anhang) > 2 else
+                                       'application/octet-stream').partition('/')
+                    part = MIMEBase(haupt, unter)
                     part.set_payload(data)
                     encoders.encode_base64(part)
                     part.add_header('Content-Disposition', f'attachment; filename={filename}')
@@ -1433,6 +1436,7 @@ Gemeldet am: {current_date}""",
             ziel = ""
         return self.send(ziel or feedback.FEEDBACK_EMAIL_DEFAULT,
                          feedback.betreff(fb), feedback.mailtext(fb),
+                         attachments=fb.get('bilder') or None,
                          reply_to=fb.get('email') or None)
 
     def send_registration_notice(self, user_name, user_email, user_phone):
@@ -2548,10 +2552,18 @@ def problem_melden(user):
                              format_func=feedback.SEITEN.get)
         text = st.text_area("Was ist passiert?", max_chars=feedback.MAX_LAENGE, height=150,
                             placeholder="z. B. Beim Buchen am Samstag kommt eine Fehlermeldung …")
+        dateien = st.file_uploader(
+            f"Screenshot oder Foto (optional, bis zu {feedback.MAX_BILDER})",
+            type=feedback.BILD_TYPEN, accept_multiple_files=True,
+            help="Wird verkleinert und ohne Standort- oder Kameradaten mitgeschickt.")
         senden = st.form_submit_button("📨 Senden", type="primary", use_container_width=True)
     if not senden:
         return
     fehler = feedback.pruefen(art, text)
+    bilder = []
+    if not fehler:
+        bilder, fehler = feedback.bilder_aufbereiten(
+            [(d.name, d.getvalue()) for d in dateien or []])
     if fehler:
         st.error(f"❌ {fehler}")
         return
@@ -2569,6 +2581,7 @@ def problem_melden(user):
         'rolle': user.get('role', 'user'), 'nutzer_id': user.get('id', ''),
         'email': user.get('email', ''), 'name': user.get('name', ''),
         'browser': browser, 'zeit': jetzt.isoformat(timespec='seconds'),
+        'bilder': bilder,
     }
     gespeichert = ww_db.add_feedback(feedback.datensatz(fb))
     ok, info = mailer.send_feedback(fb)

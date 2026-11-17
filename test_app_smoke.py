@@ -536,3 +536,25 @@ def test_registrierung_mit_firestore_transaktion(app):
         ok, msg = w.create_user('neu@test.de', 'Neu', '', 'Passwort123')
         assert (ok, msg) == (False, 'E-Mail bereits registriert')
         assert tx.set.call_count == 0
+
+
+def test_feedback_mail_mit_bild_als_image_jpeg(app):
+    """Bilder aus „Problem melden“ gehen als image/jpeg-Anhang an das Hermes-Postfach."""
+    import email
+    gesendet = []
+    smtp = mock.MagicMock()
+    smtp.__enter__.return_value.send_message.side_effect = lambda m: gesendet.append(m.as_bytes())
+    m = app.Mailer.__new__(app.Mailer)
+    m.server, m.port, m.user, m.pw, m.fromname = 'smtp.test', 587, 'u@test.de', 'pw', 'Dienstplan'
+    fb = {'id': 'FB-20261117-ab12', 'art': 'bug', 'seite': 'anmeldung', 'text': 'Registrieren geht nicht',
+          'version': '9.0', 'rolle': 'user', 'nutzer_id': 'u1', 'email': 'max@test.de', 'name': 'Max',
+          'browser': 'x', 'zeit': '2026-11-17T10:00:00+01:00',
+          'bilder': [('bild-1.jpg', b'\xff\xd8\xff\xe0JPEGDATEN', 'image/jpeg')]}
+    with mock.patch.object(app.smtplib, 'SMTP', return_value=smtp), \
+         mock.patch.object(app.st, 'secrets', FakeSecrets({})):
+        ok, _ = m.send_feedback(fb)
+    assert ok and len(gesendet) == 1
+    msg = email.message_from_bytes(gesendet[0])
+    teile = [(p.get_content_type(), p.get_filename()) for p in msg.walk() if p.get_filename()]
+    assert teile == [('image/jpeg', 'bild-1.jpg')]
+    assert 'bilder: 1 (bild-1.jpg)' in msg.get_payload()[0].get_payload(decode=True).decode()

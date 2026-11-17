@@ -10,6 +10,7 @@ private/app-feedback (Skript feedback_mail.py) mitzuziehen.
 Bewusst frei von Streamlit und Firestore, damit sich alles ohne App pruefen
 laesst.
 """
+import io
 import re
 import secrets
 from datetime import timedelta
@@ -42,6 +43,14 @@ MIN_LAENGE = 10
 MAX_LAENGE = 2000
 LIMIT_PRO_TAG = 5
 
+# Bilder (Screenshots) zur Meldung: gehen nur als Mail-Anhang an Hermes, nicht in
+# Firestore. Jedes Bild wird neu als JPEG kodiert: kleiner, und Metadaten wie
+# GPS-Position oder Kameramodell fallen dabei weg.
+MAX_BILDER = 3
+MAX_BILD_BYTES = 10 * 1024 * 1024          # Rohdatei vor dem Verkleinern
+BILD_MAX_KANTE = 1600
+BILD_TYPEN = ["png", "jpg", "jpeg", "webp", "gif"]
+
 
 def neue_id(jetzt):
     """Kurze, eindeutige Kennung, z. B. FB-20261026-3f9a."""
@@ -64,6 +73,39 @@ def pruefen(art, text):
     return None
 
 
+def bilder_aufbereiten(dateien):
+    """[(dateiname, bytes)] -> ([(name, jpeg_bytes, 'image/jpeg')], fehler oder None).
+
+    Der Dateiname des Nutzers wird nicht uebernommen (bild-1.jpg, …)."""
+    dateien = [d for d in (dateien or []) if d and d[1]]
+    if not dateien:
+        return [], None
+    if len(dateien) > MAX_BILDER:
+        return [], f"Bitte höchstens {MAX_BILDER} Bilder anhängen."
+    try:
+        from PIL import Image, ImageOps
+    except ImportError:                     # ohne Pillow lieber ohne Bilder als gar nicht
+        return [], "Bilder können gerade nicht verarbeitet werden. Bitte ohne Bild senden."
+    out = []
+    for i, (name, daten) in enumerate(dateien, 1):
+        if len(daten) > MAX_BILD_BYTES:
+            return [], f"„{_einzeilig(name, 40)}“ ist zu groß (höchstens {MAX_BILD_BYTES // 1048576} MB)."
+        try:
+            with Image.open(io.BytesIO(daten)) as im:
+                im = ImageOps.exif_transpose(im)        # Handyfotos richtig herum
+                if im.mode not in ("RGB", "L"):
+                    hinten = Image.new("RGB", im.size, (255, 255, 255))
+                    hinten.paste(im.convert("RGBA"), mask=im.convert("RGBA").split()[-1])
+                    im = hinten
+                im.thumbnail((BILD_MAX_KANTE, BILD_MAX_KANTE))
+                buf = io.BytesIO()
+                im.convert("RGB").save(buf, "JPEG", quality=85, optimize=True)
+        except Exception:
+            return [], f"„{_einzeilig(name, 40)}“ ist kein Bild (erlaubt: {', '.join(BILD_TYPEN)})."
+        out.append((f"bild-{i}.jpg", buf.getvalue(), "image/jpeg"))
+    return out, None
+
+
 def limit_erreicht(zeitpunkte, jetzt, limit=LIMIT_PRO_TAG):
     """True, wenn in den letzten 24 Stunden schon `limit` Meldungen kamen."""
     grenze = jetzt - timedelta(hours=24)
@@ -79,6 +121,11 @@ def _einzeilig(text, laenge):
 def betreff(fb):
     titel = _einzeilig(fb["text"].split("\n", 1)[0], 60)
     return f"{SUBJECT_TAG} {ARTEN[fb['art']]}: {titel} ({fb['id']})"
+
+
+def _bilder_zeile(bilder):
+    namen = [b[0] for b in bilder or []]
+    return f"{len(namen)} ({', '.join(namen)})" if namen else "0"
 
 
 def mailtext(fb):
@@ -104,6 +151,7 @@ def mailtext(fb):
         f"rolle: {_einzeilig(fb.get('rolle'), 20)}",
         f"nutzer_id: {_einzeilig(fb.get('nutzer_id'), 64)}",
         f"browser: {_einzeilig(fb.get('browser'), 200)}",
+        f"bilder: {_bilder_zeile(fb.get('bilder'))}",
         "--- BESCHREIBUNG ---",
         fb["text"],
         "--- ENDE ---",
@@ -115,4 +163,7 @@ def datensatz(fb):
     """Was in Firestore (Collection 'feedback') gespeichert wird."""
     return {k: fb.get(k) for k in (
         "id", "art", "seite", "text", "version", "rolle", "nutzer_id",
-        "email", "name", "browser", "zeit")} | {"projekt": PROJECT}
+        "email", "name", "browser", "zeit")} | {
+        "projekt": PROJECT,
+        "bilder": [{"name": b[0], "bytes": len(b[1])} for b in fb.get("bilder") or []],
+    }

@@ -45,3 +45,50 @@ def test_tageslimit():
     assert not fb.limit_erreicht(frueher, JETZT)
     assert fb.limit_erreicht(frueher + [JETZT - timedelta(minutes=5)], JETZT)
     assert not fb.limit_erreicht([JETZT - timedelta(hours=30)] * 9, JETZT)
+
+
+def _bild(fmt='JPEG', groesse=(3000, 2000), gps=False):
+    import io
+    from PIL import Image
+    im = Image.new('RGB', groesse, (200, 30, 30))
+    buf = io.BytesIO()
+    kw = {}
+    if gps:
+        exif = Image.Exif()
+        exif[0x010F] = 'Testkamera'                       # Make
+        exif[0x0132] = '2026:11:16 19:24:00'              # DateTime
+        kw['exif'] = exif
+    im.save(buf, fmt, **kw)
+    return buf.getvalue()
+
+
+def test_bilder_verkleinert_ohne_metadaten_und_begrenzt():
+    import io
+    from PIL import Image
+    bilder, fehler = fb.bilder_aufbereiten([
+        ('Screenshot 1.jpg', _bild(gps=True)),
+        ('../../etc/passwd.png', _bild('PNG', (400, 900))),
+    ])
+    assert fehler is None and len(bilder) == 2
+    name, daten, mime = bilder[0]
+    assert (name, mime) == ('bild-1.jpg', 'image/jpeg')
+    im = Image.open(io.BytesIO(daten))
+    assert max(im.size) == fb.BILD_MAX_KANTE
+    assert len(im.getexif()) == 0, 'Metadaten (EXIF, inkl. GPS) muessen weg'
+    assert bilder[1][0] == 'bild-2.jpg'
+    # Kein Bild (Text mit Bild-Endung), zu viele Bilder, zu gross
+    _, f = fb.bilder_aufbereiten([('x.png', b'kein bild')])
+    assert 'kein Bild' in f
+    _, f = fb.bilder_aufbereiten([('a.jpg', _bild(groesse=(100, 100)))] * (fb.MAX_BILDER + 1))
+    assert str(fb.MAX_BILDER) in f
+    _, f = fb.bilder_aufbereiten([('a.jpg', b'\xff\xd8' + b'0' * (fb.MAX_BILD_BYTES + 1))])
+    assert 'zu groß' in f
+    assert fb.bilder_aufbereiten([]) == ([], None)
+
+
+def test_bilder_im_block_und_datensatz():
+    m = _meldung(bilder=[('bild-1.jpg', b'x' * 2048, 'image/jpeg')])
+    assert 'bilder: 1 (bild-1.jpg)\n--- BESCHREIBUNG ---' in fb.mailtext(m)
+    d = fb.datensatz(m)
+    assert d['bilder'] == [{'name': 'bild-1.jpg', 'bytes': 2048}]
+    assert 'bilder: 0' in fb.mailtext(_meldung())
