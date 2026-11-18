@@ -148,6 +148,58 @@ def test_datenbank_kann_dauersitzungen(app):
         assert callable(getattr(app.WasserwachtDB, name, None)), f"{name} fehlt"
 
 
+def test_registrierung_liest_dokument_in_transaktion_als_snapshot(app, monkeypatch):
+    """Regression: Transaction.get liefert einen Generator von Snapshots."""
+    class Snapshot:
+        exists = False
+
+    class DocumentReference:
+        def __init__(self, document_id):
+            self.id = document_id
+            self.read_transaction = None
+
+        def get(self, transaction=None):
+            self.read_transaction = transaction
+            return Snapshot()
+
+    class Collection:
+        def document(self, document_id=None):
+            return DocumentReference(document_id or 'new-user')
+
+    class Transaction:
+        def __init__(self):
+            self.writes = []
+
+        def get(self, _reference):
+            yield Snapshot()
+
+        def set(self, reference, data):
+            self.writes.append((reference, data))
+
+    class FirestoreClient:
+        def __init__(self):
+            self.tx = Transaction()
+
+        def collection(self, _name):
+            return Collection()
+
+        def transaction(self):
+            return self.tx
+
+    monkeypatch.setattr(app.firestore, 'transactional', lambda fn: fn,
+                        raising=False)
+    datenbank = app.WasserwachtDB.__new__(app.WasserwachtDB)
+    datenbank.db = FirestoreClient()
+    monkeypatch.setattr(datenbank, 'get_user', lambda _email: None)
+
+    erfolgreich, meldung = datenbank.create_user(
+        'neu@example.org', 'Neu', '015100000000', 'sicheres-passwort')
+
+    assert erfolgreich, meldung
+    assert meldung == 'Registrierung erfolgreich'
+    assert len(datenbank.db.tx.writes) == 2
+
+
 def test_cookie_fehler_sperrt_niemanden_aus(app, monkeypatch):
     """Faellt das Cookie-Handling aus, muss der normale Login weiter gehen."""
     def kaputt(*a, **kw):
